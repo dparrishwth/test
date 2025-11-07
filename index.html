@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NY Personal Income Tax Dashboard</title>
+  <!--
+    Deployment: Upload index.html and data.csv to Vercel with no build step (Framework preset: Other, Build Command: none, Output Directory: /).
+    Ensure data.csv sits in the same directory as index.html so the dashboard can fetch it at runtime.
+  -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+    }
+    .card {
+      background: white;
+      border-radius: 1rem;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+    .chart-card {
+      display: flex;
+      flex-direction: column;
+    }
+    .chart-container {
+      width: 100%;
+      height: 320px;
+    }
+    @media (max-width: 640px) {
+      .chart-container {
+        height: 260px;
+      }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body class="text-slate-800">
+  <header class="sticky top-0 z-20 backdrop-blur bg-white/90 border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold">New York Personal Income Tax Dashboard</h1>
+        <p class="text-sm text-slate-500">Interactive insights across counties, income ranges, and residency statuses.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <span class="px-3 py-1 text-xs font-semibold bg-slate-100 text-slate-700 rounded-full">One-page</span>
+        <span class="px-3 py-1 text-xs font-semibold bg-slate-100 text-slate-700 rounded-full">Mobile-responsive</span>
+        <span class="px-3 py-1 text-xs font-semibold bg-slate-100 text-slate-700 rounded-full">Vercel-ready</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <section class="card p-4 sm:p-6">
+      <div class="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-6">
+        <label class="flex flex-col gap-2">
+          <span class="text-xs uppercase tracking-wide text-slate-500">Tax Year</span>
+          <select id="filter-year" class="rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"></select>
+        </label>
+        <label class="flex flex-col gap-2">
+          <span class="text-xs uppercase tracking-wide text-slate-500">County</span>
+          <select id="filter-county" class="rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"></select>
+        </label>
+        <label class="flex flex-col gap-2">
+          <span class="text-xs uppercase tracking-wide text-slate-500">Income Range</span>
+          <select id="filter-income" class="rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"></select>
+        </label>
+        <label class="flex flex-col gap-2">
+          <span class="text-xs uppercase tracking-wide text-slate-500">Residency</span>
+          <select id="filter-residency" class="rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"></select>
+        </label>
+      </div>
+    </section>
+
+    <section id="kpi-cards" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6"></section>
+
+    <section class="grid gap-4 lg:grid-cols-2">
+      <article class="card chart-card p-5">
+        <header class="flex flex-col gap-1 mb-3">
+          <h2 class="text-lg font-semibold">NY AGI vs Tax Liability Trend</h2>
+          <p class="text-sm text-slate-500">Year-over-year totals for the selected county and residency to show income growth versus tax burden.</p>
+        </header>
+        <div id="chart-trend" class="chart-container"></div>
+      </article>
+      <article class="card chart-card p-5">
+        <header class="flex flex-col gap-1 mb-3">
+          <h2 class="text-lg font-semibold">Filing Status Mix</h2>
+          <p class="text-sm text-slate-500">Breakdown of filing status for the chosen year and filters.</p>
+        </header>
+        <div id="chart-filing" class="chart-container"></div>
+      </article>
+      <article class="card chart-card p-5">
+        <header class="flex flex-col gap-1 mb-3">
+          <h2 class="text-lg font-semibold">Income Sources Composition</h2>
+          <p class="text-sm text-slate-500">Comparing net income sources to understand drivers of taxable income.</p>
+        </header>
+        <div id="chart-income" class="chart-container"></div>
+      </article>
+      <article class="card chart-card p-5">
+        <header class="flex flex-col gap-1 mb-3">
+          <h2 class="text-lg font-semibold">Deductions & Credits vs Liability</h2>
+          <p class="text-sm text-slate-500">Stacked view of deductions and credits next to tax liability for the selected filters.</p>
+        </header>
+        <div id="chart-deductions" class="chart-container"></div>
+      </article>
+      <article class="card chart-card p-5 lg:col-span-2">
+        <header class="flex flex-col gap-1 mb-3">
+          <h2 class="text-lg font-semibold">Top Counties by NY AGI</h2>
+          <p class="text-sm text-slate-500">Top 12 counties ranked by New York adjusted gross income for context.</p>
+        </header>
+        <div id="chart-counties" class="chart-container"></div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    // CONFIG: CSV path and column map
+    const CSV_PATH = 'data.csv';
+    const COLUMN_MAP = {
+      taxYear: 'Tax Year',
+      residency: 'NYS Residency Status',
+      county: 'County',
+      incomeRange: 'NY Adjusted Gross Income Range (Fed.Col)',
+      returns: 'Number of Returns',
+      filingSingle: 'Number filing Single',
+      filingMarriedJoint: 'Number filing Married Joint',
+      filingHead: 'Number filing Head of Household',
+      filingOther: 'Number filing Married Separate or Widow/Widower',
+      fedAGI: 'Federal Amount of NY Adjusted Gross Income',
+      nyAGI: 'New York State Amount of NY Adjusted Gross Income',
+      taxableIncome: 'Taxable Income',
+      taxBeforeCredits: 'Tax Before Credits',
+      taxCredits: 'Tax Credits',
+      taxLiability: 'Tax Liability',
+      numberWage: 'Number with Wage and Salary Income',
+      wageIncome: 'Wage and Salary Income',
+      interest: 'Interest',
+      dividends: 'Dividends',
+      capitalGain: 'Gain from Capital & Supplemental Income',
+      capitalLoss: 'Loss from Capital & Supplemental Income',
+      businessGain: 'Gain from Business & Farm Income',
+      businessLoss: 'Loss from Business & Farm Income',
+      rentGain: 'Gain from Rent,Royalties,Prtnrshp,Estates,Trusts Income',
+      rentLoss: 'Loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income',
+      numberStdDed: 'Number with New York Standard Deductions Claimed',
+      stdDed: 'New York Standard Deductions Claimed',
+      numberItemDed: 'Number with New York Itemized Deductions Claimed',
+      itemDed: 'New York Itemized Deductions Claimed',
+    };
+
+    const state = {
+      raw: [],
+      filtered: [],
+      filters: {
+        year: null,
+        county: 'All Counties',
+        incomeRange: 'All Income Ranges',
+        residency: 'All Residency',
+      },
+      charts: {},
+    };
+
+    const formatters = {
+      number: (value) => {
+        if (!isFinite(value)) return '—';
+        return new Intl.NumberFormat('en-US').format(value);
+      },
+      currency: (value) => {
+        if (!isFinite(value)) return '—';
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+      },
+      currencyWithCents: (value) => {
+        if (!isFinite(value)) return '—';
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+      },
+      percent: (value) => {
+        if (!isFinite(value)) return '—';
+        return `${(value * 100).toFixed(1)}%`;
+      },
+    };
+
+    function parseNumber(value) {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number') return value;
+      const cleaned = String(value).replace(/[$,]/g, '').trim();
+      if (cleaned === '' || cleaned === '-') return 0;
+      const num = Number(cleaned);
+      return isNaN(num) ? 0 : num;
+    }
+
+    function prepareRow(row) {
+      const parsed = { ...row };
+      Object.values(COLUMN_MAP).forEach((column) => {
+        if (column === COLUMN_MAP.taxYear || column === COLUMN_MAP.residency || column === COLUMN_MAP.county || column === COLUMN_MAP.incomeRange) {
+          return;
+        }
+        parsed[column] = parseNumber(row[column]);
+      });
+      parsed[COLUMN_MAP.taxYear] = String(row[COLUMN_MAP.taxYear]).trim();
+      return parsed;
+    }
+
+    function populateFilters(data) {
+      const yearSelect = document.getElementById('filter-year');
+      const countySelect = document.getElementById('filter-county');
+      const incomeSelect = document.getElementById('filter-income');
+      const residencySelect = document.getElementById('filter-residency');
+
+      const years = Array.from(new Set(data.map((d) => d[COLUMN_MAP.taxYear]))).sort();
+      const latestYear = years[years.length - 1];
+      state.filters.year = latestYear;
+
+      yearSelect.innerHTML = years
+        .sort((a, b) => Number(b) - Number(a))
+        .map((year) => `<option value="${year}" ${year === latestYear ? 'selected' : ''}>${year}</option>`)
+        .join('');
+
+      const counties = ['All Counties', ...Array.from(new Set(data.map((d) => d[COLUMN_MAP.county]))).sort()];
+      countySelect.innerHTML = counties.map((c) => `<option value="${c}">${c}</option>`).join('');
+
+      const incomeRanges = ['All Income Ranges', ...Array.from(new Set(data.map((d) => d[COLUMN_MAP.incomeRange]))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))];
+      incomeSelect.innerHTML = incomeRanges.map((r) => `<option value="${r}">${r}</option>`).join('');
+
+      const residencies = ['All Residency', ...Array.from(new Set(data.map((d) => d[COLUMN_MAP.residency]))).sort()];
+      residencySelect.innerHTML = residencies.map((r) => `<option value="${r}">${r}</option>`).join('');
+    }
+
+    function applyFilters() {
+      state.filtered = state.raw.filter((row) => {
+        const yearMatch = row[COLUMN_MAP.taxYear] === state.filters.year;
+        const countyMatch = state.filters.county === 'All Counties' || row[COLUMN_MAP.county] === state.filters.county;
+        const incomeMatch = state.filters.incomeRange === 'All Income Ranges' || row[COLUMN_MAP.incomeRange] === state.filters.incomeRange;
+        const residencyMatch = state.filters.residency === 'All Residency' || row[COLUMN_MAP.residency] === state.filters.residency;
+        return yearMatch && countyMatch && incomeMatch && residencyMatch;
+      });
+    }
+
+    function aggregate(rows, keys) {
+      return rows.reduce((acc, row) => {
+        keys.forEach((key) => {
+          acc[key] = (acc[key] || 0) + parseNumber(row[key]);
+        });
+        return acc;
+      }, {});
+    }
+
+    function renderKpis() {
+      // KPI render
+      const container = document.getElementById('kpi-cards');
+      const totals = aggregate(state.filtered, [
+        COLUMN_MAP.returns,
+        COLUMN_MAP.nyAGI,
+        COLUMN_MAP.taxableIncome,
+        COLUMN_MAP.taxLiability,
+        COLUMN_MAP.taxCredits,
+        COLUMN_MAP.taxBeforeCredits,
+      ]);
+
+      const avgTaxPerReturn = totals[COLUMN_MAP.returns] ? totals[COLUMN_MAP.taxLiability] / totals[COLUMN_MAP.returns] : 0;
+      const creditsPct = totals[COLUMN_MAP.taxBeforeCredits] ? totals[COLUMN_MAP.taxCredits] / totals[COLUMN_MAP.taxBeforeCredits] : 0;
+
+      const tiles = [
+        {
+          label: 'Returns',
+          value: formatters.number(totals[COLUMN_MAP.returns] || 0),
+        },
+        {
+          label: 'NY AGI',
+          value: formatters.currency(totals[COLUMN_MAP.nyAGI] || 0),
+        },
+        {
+          label: 'Taxable Income',
+          value: formatters.currency(totals[COLUMN_MAP.taxableIncome] || 0),
+        },
+        {
+          label: 'Tax Liability',
+          value: formatters.currency(totals[COLUMN_MAP.taxLiability] || 0),
+        },
+        {
+          label: 'Avg Tax / Return',
+          value: formatters.currencyWithCents(avgTaxPerReturn),
+        },
+        {
+          label: 'Credits as % of Pre-credit Tax',
+          value: formatters.percent(creditsPct),
+        },
+      ];
+
+      container.innerHTML = tiles
+        .map(
+          (tile) => `
+          <div class="card p-4 flex flex-col gap-2">
+            <span class="text-xs uppercase tracking-wide text-slate-500">${tile.label}</span>
+            <span class="text-xl font-semibold">${tile.value}</span>
+          </div>`
+        )
+        .join('');
+    }
+
+    function initCharts() {
+      state.charts.trend = echarts.init(document.getElementById('chart-trend'));
+      state.charts.filing = echarts.init(document.getElementById('chart-filing'));
+      state.charts.income = echarts.init(document.getElementById('chart-income'));
+      state.charts.deductions = echarts.init(document.getElementById('chart-deductions'));
+      state.charts.counties = echarts.init(document.getElementById('chart-counties'));
+    }
+
+    function renderTrendChart() {
+      const { county, residency } = state.filters;
+      const filtered = state.raw.filter((row) => {
+        const countyMatch = county === 'All Counties' || row[COLUMN_MAP.county] === county;
+        const residencyMatch = residency === 'All Residency' || row[COLUMN_MAP.residency] === residency;
+        return countyMatch && residencyMatch;
+      });
+
+      const totalsByYear = {};
+      filtered.forEach((row) => {
+        const year = row[COLUMN_MAP.taxYear];
+        if (!totalsByYear[year]) {
+          totalsByYear[year] = { nyAGI: 0, liability: 0 };
+        }
+        totalsByYear[year].nyAGI += parseNumber(row[COLUMN_MAP.nyAGI]);
+        totalsByYear[year].liability += parseNumber(row[COLUMN_MAP.taxLiability]);
+      });
+
+      const years = Object.keys(totalsByYear).sort((a, b) => Number(a) - Number(b));
+      if (!years.length) {
+        state.charts.trend.setOption({
+          tooltip: { trigger: 'axis' },
+          legend: { data: [] },
+          xAxis: { type: 'category', data: [] },
+          yAxis: { type: 'value' },
+          series: [],
+        });
+        return;
+      }
+
+      const nyAGIData = years.map((year) => totalsByYear[year].nyAGI);
+      const liabilityData = years.map((year) => totalsByYear[year].liability);
+
+      state.charts.trend.setOption({
+        tooltip: {
+          trigger: 'axis',
+          valueFormatter: (value) => formatters.currency(value),
+        },
+        legend: {
+          data: ['NY AGI', 'Tax Liability'],
+        },
+        grid: { left: 40, right: 20, top: 50, bottom: 40 },
+        xAxis: {
+          type: 'category',
+          data: years,
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            formatter: (value) => formatters.number(value),
+          },
+        },
+        series: [
+          {
+            name: 'NY AGI',
+            type: 'line',
+            smooth: true,
+            areaStyle: { opacity: 0.1 },
+            emphasis: { focus: 'series' },
+            data: nyAGIData,
+          },
+          {
+            name: 'Tax Liability',
+            type: 'line',
+            smooth: true,
+            emphasis: { focus: 'series' },
+            data: liabilityData,
+          },
+        ],
+      });
+    }
+
+    function renderFilingChart() {
+      const totals = aggregate(state.filtered, [
+        COLUMN_MAP.filingSingle,
+        COLUMN_MAP.filingMarriedJoint,
+        COLUMN_MAP.filingHead,
+        COLUMN_MAP.filingOther,
+      ]);
+
+      const other = totals[COLUMN_MAP.filingOther] || 0;
+      const data = [
+        { name: 'Single', value: totals[COLUMN_MAP.filingSingle] || 0 },
+        { name: 'Married Joint', value: totals[COLUMN_MAP.filingMarriedJoint] || 0 },
+        { name: 'Head of Household', value: totals[COLUMN_MAP.filingHead] || 0 },
+        { name: 'Other', value: other },
+      ];
+
+      state.charts.filing.setOption({
+        tooltip: {
+          trigger: 'item',
+          valueFormatter: (value) => formatters.number(value),
+        },
+        legend: {
+          orient: 'vertical',
+          left: 'left',
+        },
+        series: [
+          {
+            type: 'pie',
+            radius: ['40%', '70%'],
+            avoidLabelOverlap: false,
+            itemStyle: {
+              borderRadius: 8,
+              borderColor: '#fff',
+              borderWidth: 2,
+            },
+            label: {
+              formatter: '{b}: {d}%',
+            },
+            data,
+          },
+        ],
+      });
+    }
+
+    function renderIncomeChart() {
+      const totals = aggregate(state.filtered, [
+        COLUMN_MAP.wageIncome,
+        COLUMN_MAP.interest,
+        COLUMN_MAP.dividends,
+        COLUMN_MAP.capitalGain,
+        COLUMN_MAP.capitalLoss,
+        COLUMN_MAP.businessGain,
+        COLUMN_MAP.businessLoss,
+        COLUMN_MAP.rentGain,
+        COLUMN_MAP.rentLoss,
+      ]);
+
+      const net = (gain, loss) => (gain || 0) - Math.abs(loss || 0);
+
+      const seriesData = [
+        { name: 'Wages', value: totals[COLUMN_MAP.wageIncome] || 0 },
+        { name: 'Interest', value: totals[COLUMN_MAP.interest] || 0 },
+        { name: 'Dividends', value: totals[COLUMN_MAP.dividends] || 0 },
+        { name: 'Capital (Net)', value: net(totals[COLUMN_MAP.capitalGain], totals[COLUMN_MAP.capitalLoss]) },
+        { name: 'Business & Farm (Net)', value: net(totals[COLUMN_MAP.businessGain], totals[COLUMN_MAP.businessLoss]) },
+        { name: 'Rent & Royalties (Net)', value: net(totals[COLUMN_MAP.rentGain], totals[COLUMN_MAP.rentLoss]) },
+      ];
+
+      state.charts.income.setOption({
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          valueFormatter: (value) => formatters.currency(value),
+        },
+        legend: {
+          top: 0,
+        },
+        grid: { left: 140, right: 20, top: 60, bottom: 40 },
+        xAxis: {
+          type: 'value',
+          axisLabel: {
+            formatter: (value) => formatters.number(value),
+          },
+        },
+        yAxis: {
+          type: 'category',
+          data: ['Income Sources'],
+        },
+        series: seriesData.map((item) => ({
+          name: item.name,
+          type: 'bar',
+          stack: 'sources',
+          data: [item.value],
+          emphasis: { focus: 'series' },
+          label: {
+            show: true,
+            position: 'inside',
+            formatter: ({ value }) => (value ? formatters.currency(value) : ''),
+          },
+        })),
+      });
+    }
+
+    function renderDeductionsChart() {
+      const totals = aggregate(state.filtered, [
+        COLUMN_MAP.stdDed,
+        COLUMN_MAP.itemDed,
+        COLUMN_MAP.taxCredits,
+        COLUMN_MAP.taxLiability,
+      ]);
+
+      const categories = ['Standard Deduction', 'Itemized Deduction', 'Credits', 'Tax Liability'];
+      const values = [
+        totals[COLUMN_MAP.stdDed] || 0,
+        totals[COLUMN_MAP.itemDed] || 0,
+        totals[COLUMN_MAP.taxCredits] || 0,
+        totals[COLUMN_MAP.taxLiability] || 0,
+      ];
+
+      state.charts.deductions.setOption({
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          valueFormatter: (value) => formatters.currency(value),
+        },
+        grid: { left: 80, right: 20, top: 40, bottom: 40 },
+        xAxis: {
+          type: 'category',
+          data: categories,
+          axisLabel: {
+            formatter: (value) => value,
+          },
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            formatter: (value) => formatters.number(value),
+          },
+        },
+        series: [
+          {
+            type: 'bar',
+            data: values,
+            itemStyle: { borderRadius: [8, 8, 0, 0] },
+            label: {
+              show: true,
+              position: 'top',
+              formatter: ({ value }) => formatters.currency(value),
+            },
+          },
+        ],
+      });
+    }
+
+    function renderTopCountiesChart() {
+      const { residency, incomeRange, year } = state.filters;
+      const filtered = state.raw.filter((row) => {
+        const yearMatch = row[COLUMN_MAP.taxYear] === year;
+        const residencyMatch = residency === 'All Residency' || row[COLUMN_MAP.residency] === residency;
+        const incomeMatch = incomeRange === 'All Income Ranges' || row[COLUMN_MAP.incomeRange] === incomeRange;
+        return yearMatch && residencyMatch && incomeMatch;
+      });
+
+      const totals = {};
+      filtered.forEach((row) => {
+        const county = row[COLUMN_MAP.county];
+        totals[county] = (totals[county] || 0) + parseNumber(row[COLUMN_MAP.nyAGI]);
+      });
+
+      const sorted = Object.entries(totals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12);
+
+      const counties = sorted.map(([county]) => county).reverse();
+      const values = sorted.map(([, value]) => value).reverse();
+
+      state.charts.counties.setOption({
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          valueFormatter: (value) => formatters.currency(value),
+        },
+        grid: { left: 150, right: 20, top: 40, bottom: 40 },
+        xAxis: {
+          type: 'value',
+          axisLabel: {
+            formatter: (value) => formatters.number(value),
+          },
+        },
+        yAxis: {
+          type: 'category',
+          data: counties,
+        },
+        series: [
+          {
+            type: 'bar',
+            data: values,
+            itemStyle: { borderRadius: [0, 8, 8, 0] },
+            label: {
+              show: true,
+              position: 'right',
+              formatter: ({ value }) => formatters.currency(value),
+            },
+          },
+        ],
+      });
+    }
+
+    function updateUI() {
+      applyFilters();
+      renderKpis();
+      renderTrendChart();
+      renderFilingChart();
+      renderIncomeChart();
+      renderDeductionsChart();
+      renderTopCountiesChart();
+    }
+
+    function registerEvents() {
+      // Event wiring
+      document.getElementById('filter-year').addEventListener('change', (event) => {
+        state.filters.year = event.target.value;
+        updateUI();
+      });
+      document.getElementById('filter-county').addEventListener('change', (event) => {
+        state.filters.county = event.target.value;
+        updateUI();
+      });
+      document.getElementById('filter-income').addEventListener('change', (event) => {
+        state.filters.incomeRange = event.target.value;
+        updateUI();
+      });
+      document.getElementById('filter-residency').addEventListener('change', (event) => {
+        state.filters.residency = event.target.value;
+        updateUI();
+      });
+
+      window.addEventListener('resize', () => {
+        Object.values(state.charts).forEach((chart) => chart && chart.resize());
+      });
+    }
+
+    function showError(message) {
+      const main = document.querySelector('main');
+      main.innerHTML = `<div class="card p-6 text-center text-red-600 font-semibold">${message}</div>`;
+    }
+
+    function init() {
+      Papa.parse(CSV_PATH, {
+        download: true,
+        header: true,
+        dynamicTyping: false,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.errors && results.errors.length) {
+            console.error(results.errors);
+          }
+          const rows = results.data.map(prepareRow).filter((row) => row[COLUMN_MAP.taxYear]);
+          if (!rows.length) {
+            showError('No data rows were found in data.csv.');
+            return;
+          }
+          state.raw = rows;
+          populateFilters(rows);
+          initCharts();
+          registerEvents();
+          updateUI();
+        },
+        error: (error) => {
+          console.error(error);
+          showError('Failed to load data.csv. Please ensure it is deployed next to index.html.');
+        },
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
